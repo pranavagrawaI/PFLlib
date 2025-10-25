@@ -9,12 +9,21 @@ class ServerAdaProxDitto(Ditto):
     Combines Ditto's personalization with adaptive lambda based on loss gap.
     """
     def __init__(self, args, times):
-        super().__init__(args, times)
+        # Call Server.__init__ directly to avoid Ditto's set_clients(clientDitto)
+        # Then manually do what Ditto.__init__ does but with our client class
+        from flcore.servers.serverbase import Server
+        Server.__init__(self, args, times)
         
-        # Override the client class with AdaProxDitto clients
+        # Replicate Ditto's init but with ClientAdaProxDitto
+        self.set_slow_clients()
         self.set_clients(ClientAdaProxDitto)
         
-        # Global loss EMA state
+        print(f"\nJoin ratio / total clients: {self.join_ratio} / {self.num_clients}")
+        print("Finished creating server and clients.")
+        
+        self.Budget = []
+        
+        # AdaProx-specific state
         self.lg = None
         self.beta = getattr(args, 'ema_beta', 0.9)
         
@@ -80,6 +89,15 @@ class ServerAdaProxDitto(Ditto):
                 
                 if i % self.eval_gap == 0:
                     print(f"[AdaProxDitto] Mean client loss: {mean_loss:.4f}, EMA (lg): {self.lg:.4f}")
+                    
+                    # Print adaptive mu values for each client
+                    print("[AdaProxDitto] Adaptive μ values per client:")
+                    for client in self.selected_clients:
+                        if hasattr(client, 'adaptive_mu_info'):
+                            info = client.adaptive_mu_info
+                            print(f"  Client {client.id}: μ={info['mu']:.4f}, "
+                                  f"Li={info['loss_local']:.4f}, Lg={info['loss_global_ema']:.4f}, "
+                                  f"{info['reason']}")
             
             except Exception as e:
                 print(f"[AdaProxDitto Warning] Error computing EMA: {e}")
