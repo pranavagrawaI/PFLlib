@@ -506,25 +506,27 @@ if __name__ == "__main__":
     parser.add_argument('-ca', "--fedcross_alpha", type=float, default=0.99)
     parser.add_argument('-cmss', "--collaberative_model_select_strategy", type=int, default=1)
     
-    # AdaProxFedProx
-    parser.add_argument('-ag', "--alpha_gain", type=float, default=1.0,
-                        help="Adaptive mu gain (alpha) for AdaProx")
-    parser.add_argument('-gc', "--gap_clip", type=float, default=1.0,
-                        help="Clipping value for loss gap (tau) in AdaProx")
-    parser.add_argument('-mmax', "--mu_max", type=float, default=5.0,
-                        help="Maximum value for adaptive mu in AdaProx")
-    parser.add_argument('-minit', "--mu_init", type=float, default=0.0,
-                        help="Initial mu value during warmup in AdaProx")
-    parser.add_argument('-wr', "--warmup_rounds", type=int, default=5,
-                        help="Rounds before adaptive mu kicks in for AdaProx")
+    # AdaProxFedProx & AdaProxDitto - Minimal Config Surface
+    parser.add_argument('-mubase', "--mu_base", type=float, default=0.08,
+                        help="Base mu value for AdaProx governor")
+    parser.add_argument('-mmin', "--mu_min", type=float, default=0.05,
+                        help="Minimum mu floor to prevent collapse")
+    parser.add_argument('-mmax', "--mu_max", type=float, default=3.0,
+                        help="Maximum mu cap")
+    parser.add_argument('-ag', "--alpha_gain", type=float, default=0.8,
+                        help="Adaptive mu gain (alpha) for gap amplification")
+    parser.add_argument('-gt', "--gap_tau", type=float, default=0.7,
+                        help="Gap clipping threshold (tau)")
+    parser.add_argument('-musmooth', "--mu_smooth_gamma", type=float, default=0.3,
+                        help="Smoothing factor for mu temporal stability")
     parser.add_argument('-eb', "--ema_beta", type=float, default=0.9,
-                        help="EMA beta for server's global loss tracker in AdaProx")
-    
-    # AdaProxDitto
-    parser.add_argument('-lmax', "--lam_max", type=float, default=5.0,
-                        help="Maximum value for adaptive lambda in AdaProxDitto")
-    parser.add_argument('-linit', "--lam_init", type=float, default=0.0,
-                        help="Initial lambda value during warmup in AdaProxDitto")
+                        help="EMA beta for server's global loss tracker")
+    parser.add_argument('-lsr', "--loss_eval_sample_ratio", type=float, default=0.1,
+                        help="Sample ratio for loss evaluation (cap 256)")
+    parser.add_argument('-wr', "--warmup_rounds", type=int, default=2,
+                        help="Warmup rounds before adaptive mu kicks in")
+    parser.add_argument('-vmu', "--verbose_mu", type=bool, default=False,
+                        help="Enable verbose console logging of mu evolution steps")
 
 
     args = parser.parse_args()

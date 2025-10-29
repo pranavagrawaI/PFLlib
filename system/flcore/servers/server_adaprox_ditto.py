@@ -76,28 +76,22 @@ class ServerAdaProxDitto(Ditto):
             # Collect models from clients
             self.receive_models()
             
-            # === AdaProx: Update EMA of global loss ===
+            # === AdaProx: Update EMA of median global loss ===
             try:
-                client_losses = [c.mean_loss_global for c in self.selected_clients]
-                mean_loss = sum(client_losses) / len(client_losses)
+                import numpy as np
+                client_losses = [float(c.mean_loss_global) for c in self.selected_clients 
+                                 if hasattr(c, "mean_loss_global")]
                 
-                # Update EMA
-                if self.lg is None:
-                    self.lg = mean_loss
-                else:
-                    self.lg = self.beta * self.lg + (1 - self.beta) * mean_loss
-                
-                if i % self.eval_gap == 0:
-                    print(f"[AdaProxDitto] Mean client loss: {mean_loss:.4f}, EMA (lg): {self.lg:.4f}")
+                if len(client_losses) > 0:
+                    med = float(np.median(client_losses))
+                    # Update EMA with median
+                    if self.lg is None:
+                        self.lg = med
+                    else:
+                        self.lg = self.beta * self.lg + (1.0 - self.beta) * med
                     
-                    # Print adaptive mu values for each client
-                    print("[AdaProxDitto] Adaptive μ values per client:")
-                    for client in self.selected_clients:
-                        if hasattr(client, 'adaptive_mu_info'):
-                            info = client.adaptive_mu_info
-                            print(f"  Client {client.id}: μ={info['mu']:.4f}, "
-                                  f"Li={info['loss_local']:.4f}, Lg={info['loss_global_ema']:.4f}, "
-                                  f"{info['reason']}")
+                    if i % self.eval_gap == 0:
+                        print(f"[AdaProxDitto] Median client loss: {med:.4f}, EMA (Lg): {self.lg:.4f}")
             
             except Exception as e:
                 print(f"[AdaProxDitto Warning] Error computing EMA: {e}")
