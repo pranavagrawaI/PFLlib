@@ -65,22 +65,25 @@ class AdaProxFedProx(Server):
             # Collect models from clients
             self.receive_models()
             
-            # === AdaProx: Update EMA of global loss ===
+            # === AdaProx: Update EMA of median global loss ===
             try:
-                client_losses = [c.mean_loss_global for c in self.selected_clients]
-                mean_loss = sum(client_losses) / len(client_losses)
+                import numpy as np
+                client_losses = [float(c.mean_loss_global) for c in self.selected_clients 
+                                 if hasattr(c, "mean_loss_global")]
                 
-                # Update EMA
-                if self.lg is None:
-                    self.lg = mean_loss
-                else:
-                    self.lg = self.beta * self.lg + (1 - self.beta) * mean_loss
-                
-                if i % self.eval_gap == 0:
-                    print(f"[AdaProx] Mean client loss: {mean_loss:.4f}, EMA (lg): {self.lg:.4f}")
+                if len(client_losses) > 0:
+                    med = float(np.median(client_losses))
+                    # Update EMA with median
+                    if self.lg is None:
+                        self.lg = med
+                    else:
+                        self.lg = self.beta * self.lg + (1.0 - self.beta) * med
+                    
+                    if i % self.eval_gap == 0:
+                        print(f"[AdaProxFedProx] Median client loss: {med:.4f}, EMA (Lg): {self.lg:.4f}")
             
             except Exception as e:
-                print(f"[AdaProx Warning] Error computing EMA: {e}")
+                print(f"[AdaProxFedProx Warning] Error computing EMA: {e}")
             # === End AdaProx logic ===
 
             # DLG evaluation if needed

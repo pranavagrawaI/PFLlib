@@ -1,6 +1,7 @@
 import time
 from flcore.clients.client_adaprox_ditto import ClientAdaProxDitto
 from flcore.servers.serverditto import Ditto
+from flcore.servers.serverbase import Server
 
 
 class ServerAdaProxDitto(Ditto):
@@ -11,7 +12,6 @@ class ServerAdaProxDitto(Ditto):
     def __init__(self, args, times):
         # Call Server.__init__ directly to avoid Ditto's set_clients(clientDitto)
         # Then manually do what Ditto.__init__ does but with our client class
-        from flcore.servers.serverbase import Server
         Server.__init__(self, args, times)
         
         # Replicate Ditto's init but with ClientAdaProxDitto

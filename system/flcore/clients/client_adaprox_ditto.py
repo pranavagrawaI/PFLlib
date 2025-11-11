@@ -91,6 +91,57 @@ class ClientAdaProxDitto(clientDitto):
             loss = self.loss(logits, Y)
             return float(loss.item())
 
+    def _eval_accuracy_sampled(self, model, sample_ratio: float, cap: int = 256) -> float:
+        """
+        Evaluate accuracy on a random subset of the local train set.
+        Use up to 'cap' examples (whichever is smaller: ratio subset or cap).
+        No gradients. Model in eval() mode. Return accuracy percentage.
+        
+        Args:
+            model: The model to evaluate (self.model for global, self.model_per for personalized)
+            sample_ratio: Fraction of training data to sample
+            cap: Maximum number of examples to evaluate
+        
+        Returns:
+            Accuracy as a percentage (0-100)
+        """
+        model.eval()
+        trainloader = self.load_train_data()
+        
+        # Build a small sampled buffer
+        buf_x, buf_y, n = [], [], 0
+        target = max(1, min(cap, int(sample_ratio * getattr(self, "train_samples", cap))))
+        
+        with torch.no_grad():
+            for x, y in trainloader:
+                if isinstance(x, list):
+                    x0 = x[0].to(self.device)
+                else:
+                    x0 = x.to(self.device)
+                y0 = y.to(self.device)
+                
+                # Reservoir-like simple take-until target
+                for i in range(x0.size(0)):
+                    if n < target:
+                        buf_x.append(x0[i].unsqueeze(0))
+                        buf_y.append(y0[i].unsqueeze(0))
+                        n += 1
+                    if n >= target:
+                        break
+                if n >= target:
+                    break
+
+            if n == 0:
+                return 0.0
+
+            X = torch.cat(buf_x, dim=0)
+            Y = torch.cat(buf_y, dim=0)
+            logits = model(X)
+            predictions = torch.argmax(logits, dim=1)
+            correct = (predictions == Y).sum().item()
+            accuracy = 100.0 * correct / n
+            return float(accuracy)
+
     def _set_adaptive_mu(self):
         """
         Compute adaptive mu based on positive log-ratio gap with governor:
@@ -173,11 +224,17 @@ class ClientAdaProxDitto(clientDitto):
         if hasattr(self, "optimizer_per") and hasattr(self.optimizer_per, "mu"):
             self.optimizer_per.mu = mu_t
 
+        # Compute accuracy metrics for logging
+        acc_global = self._eval_accuracy_sampled(self.model, self.loss_eval_sample_ratio, cap=256)
+        acc_personalized = self._eval_accuracy_sampled(self.model_per, self.loss_eval_sample_ratio, cap=256)
+
         self.adaptive_mu_info = {
             "mu": float(mu_t),
             "loss_local": Li,
             "loss_global_ema": float(Lg) if (Lg is not None) else 0.0,
             "g_pos": float(g_pos),
+            "acc_global": float(acc_global),
+            "acc_personalized": float(acc_personalized),
             "mu_evolution": step_log,  # Add detailed step tracking
         }
 
@@ -211,6 +268,9 @@ class ClientAdaProxDitto(clientDitto):
             "Lg": float(self.server_lg) if self.server_lg is not None else 0.0,
             "g_pos": float(self.adaptive_mu_info.get("g_pos", 0.0)),
             "mu_final": float(self.mu_current),
+            # Accuracy metrics
+            "acc_global": float(self.adaptive_mu_info.get("acc_global", 0.0)),
+            "acc_personalized": float(self.adaptive_mu_info.get("acc_personalized", 0.0)),
             # Step-by-step evolution
             "mu_prev": step_0.get("mu_prev", 0.0),
             "g_raw": step_1.get("g_raw", 0.0) if step_1.get("g_raw") is not None else 0.0,
@@ -240,30 +300,36 @@ class ClientAdaProxDitto(clientDitto):
         
         # Step 0: Inputs
         step_0 = mu_evo.get("step_0_inputs", {})
-        print(f"  Step 0 - Inputs:")
+        print("  Step 0 - Inputs:")
         print(f"    Li = {step_0.get('Li', 0.0):.6f}")
         print(f"    Lg = {step_0.get('Lg', 'None')}")
         print(f"    μ_prev = {step_0.get('mu_prev', 0.0):.6f}")
         
+        # Accuracy metrics
+        acc_global = self.adaptive_mu_info.get("acc_global", 0.0)
+        acc_personalized = self.adaptive_mu_info.get("acc_personalized", 0.0)
+        print(f"    Acc_global = {acc_global:.2f}%")
+        print(f"    Acc_personalized = {acc_personalized:.2f}%")
+        
         # Step 1: Gap computation
         step_1 = mu_evo.get("step_1_gap", {})
         g_raw = step_1.get("g_raw")
-        print(f"  Step 1 - Gap Computation:")
+        print("  Step 1 - Gap Computation:")
         print(f"    g_raw = log(Li/Lg) = {g_raw:.6f if g_raw is not None else 'N/A'}")
         print(f"    g_pos = clamp(g_raw, 0, τ={step_1.get('gap_tau', 0.0):.2f}) = {step_1.get('g_pos', 0.0):.6f}")
         
         # Step 2: Target mu
         step_2 = mu_evo.get("step_2_target", {})
-        print(f"  Step 2 - Target μ*:")
-        print(f"    μ* = μ_base + α·g_pos")
+        print("  Step 2 - Target μ*:")
+        print("    μ* = μ_base + α·g_pos")
         print(f"       = {step_2.get('mu_base', 0.0):.4f} + {step_2.get('alpha_gain', 0.0):.2f}·{step_1.get('g_pos', 0.0):.6f}")
         print(f"       = {step_2.get('mu_star', 0.0):.6f}")
         
         # Step 3: Smoothing
         step_3 = mu_evo.get("step_3_smoothing", {})
         gamma = step_3.get("gamma", 0.0)
-        print(f"  Step 3 - Temporal Smoothing:")
-        print(f"    μ_smooth = (1-γ)·μ_prev + γ·μ*")
+        print("  Step 3 - Temporal Smoothing:")
+        print("    μ_smooth = (1-γ)·μ_prev + γ·μ*")
         print(f"             = {1-gamma:.2f}·{step_0.get('mu_prev', 0.0):.6f} + {gamma:.2f}·{step_2.get('mu_star', 0.0):.6f}")
         print(f"             = {step_3.get('mu_smoothed', 0.0):.6f}")
         
@@ -276,10 +342,10 @@ class ClientAdaProxDitto(clientDitto):
         # Step 5: Warmup
         step_5 = mu_evo.get("step_5_warmup", {})
         if step_5.get("warmup_active", False):
-            print(f"  Step 5 - Warmup Override:")
+            print("  Step 5 - Warmup Override:")
             print(f"    μ_final = μ_min = {step_5.get('mu_final', 0.0):.6f} (warmup active)")
         else:
-            print(f"  Step 5 - Final:")
+            print("  Step 5 - Final:")
             print(f"    μ_final = {step_5.get('mu_final', 0.0):.6f}")
         print()
 
