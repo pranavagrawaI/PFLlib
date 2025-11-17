@@ -1,4 +1,6 @@
 import time
+import os
+import csv
 from flcore.clients.client_adaprox_ditto import ClientAdaProxDitto
 from flcore.servers.serverditto import Ditto
 from flcore.servers.serverbase import Server
@@ -23,12 +25,44 @@ class ServerAdaProxDitto(Ditto):
         
         self.Budget = []
         
-        # AdaProx-specific state
+        # AdaProx-specific states
         self.lg = None
         self.beta = getattr(args, 'ema_beta', 0.9)
         
+        # Separate tracking for personalized model metrics (Ditto-specific)
+        self.rs_test_acc_per = []
+        self.rs_train_loss_per = []
+        
         print(f"\n[AdaProxDitto] EMA beta: {self.beta}")
         print("[AdaProxDitto] Using adaptive proximal regularization for Ditto")
+
+    def _log_server_metrics_csv(self, round_num, median_loss, test_acc_global, train_loss_global, test_acc_per, train_loss_per, avg_mu):
+        """
+        Log server-level metrics to CSV:
+        round, median_client_loss, lg_ema, test_acc_global, train_loss_global, test_acc_personalized, train_loss_personalized, avg_mu, time_cost
+        """
+        outdir = getattr(self.args, "results_save_path", "./results")
+        os.makedirs(outdir, exist_ok=True)
+        path = os.path.join(outdir, "adaprox_ditto_server_metrics.csv")
+        write_header = not os.path.exists(path)
+        
+        row = {
+            "round": int(round_num),
+            "median_client_loss": float(median_loss) if median_loss is not None else 0.0,
+            "lg_ema": float(self.lg) if self.lg is not None else 0.0,
+            "test_acc_global": float(test_acc_global) if test_acc_global is not None else 0.0,
+            "train_loss_global": float(train_loss_global) if train_loss_global is not None else 0.0,
+            "test_acc_personalized": float(test_acc_per) if test_acc_per is not None else 0.0,
+            "train_loss_personalized": float(train_loss_per) if train_loss_per is not None else 0.0,
+            "avg_mu": float(avg_mu) if avg_mu is not None else 0.0,
+            "time_cost": float(self.Budget[-1]) if self.Budget else 0.0,
+        }
+        
+        with open(path, "a", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=list(row.keys()))
+            if write_header:
+                w.writeheader()
+            w.writerow(row)
 
     def send_models(self):
         """
@@ -77,6 +111,8 @@ class ServerAdaProxDitto(Ditto):
             self.receive_models()
             
             # === AdaProx: Update EMA of median global loss ===
+            med = None
+            avg_mu = None
             try:
                 import numpy as np
                 client_losses = [float(c.mean_loss_global) for c in self.selected_clients 
@@ -92,10 +128,37 @@ class ServerAdaProxDitto(Ditto):
                     
                     if i % self.eval_gap == 0:
                         print(f"[AdaProxDitto] Median client loss: {med:.4f}, EMA (Lg): {self.lg:.4f}")
+                
+                # Compute average mu across clients
+                client_mus = [float(c.mu_current) for c in self.selected_clients 
+                             if hasattr(c, "mu_current")]
+                if len(client_mus) > 0:
+                    avg_mu = float(np.mean(client_mus))
+                    if i % self.eval_gap == 0:
+                        print(f"[AdaProxDitto] Average mu: {avg_mu:.4f}")
             
             except Exception as e:
                 print(f"[AdaProxDitto Warning] Error computing EMA: {e}")
             # === End AdaProx logic ===
+            
+            # Log server metrics to CSV (need to track both global and personalized metrics for Ditto)
+            if i % self.eval_gap == 0:
+                # For Ditto, we have separate test accuracy tracking
+                # rs_test_acc tracks global model accuracy
+                # We need to manually track personalized accuracy from evaluate_personalized
+                test_acc_global = self.rs_test_acc[-1] if self.rs_test_acc else None
+                train_loss_global = self.rs_train_loss[-1] if self.rs_train_loss else None
+                # Note: Ditto's evaluate_personalized adds to same rs_test_acc, so we'd need separate tracking
+                # For now, we'll use the last entry which should be personalized if called last
+                test_acc_per = None
+                train_loss_per = None
+                # Try to extract personalized metrics if available
+                if hasattr(self, 'rs_test_acc_per'):
+                    test_acc_per = self.rs_test_acc_per[-1] if self.rs_test_acc_per else None
+                if hasattr(self, 'rs_train_loss_per'):
+                    train_loss_per = self.rs_train_loss_per[-1] if self.rs_train_loss_per else None
+                    
+                self._log_server_metrics_csv(i, med, test_acc_global, train_loss_global, test_acc_per, train_loss_per, avg_mu)
 
             # DLG evaluation if needed
             if self.dlg_eval and i % self.dlg_gap == 0:
@@ -124,3 +187,21 @@ class ServerAdaProxDitto(Ditto):
             print(f"\n-------------Fine tuning round-------------")
             print("\nEvaluate new clients")
             self.evaluate()
+
+    def evaluate_personalized(self, acc=None, loss=None):
+        """
+        Override to track personalized model metrics in separate arrays.
+        """
+        # Call parent implementation but track in our own arrays
+        stats = self.test_metrics_personalized()
+        stats_train = self.train_metrics_personalized()
+
+        test_acc = sum(stats[2])*1.0 / sum(stats[1])
+        train_loss = sum(stats_train[2])*1.0 / sum(stats_train[1])
+        
+        # Store in personalized tracking arrays
+        self.rs_test_acc_per.append(test_acc)
+        self.rs_train_loss_per.append(train_loss)
+        
+        # Also call parent to maintain compatibility
+        super().evaluate_personalized(acc, loss)

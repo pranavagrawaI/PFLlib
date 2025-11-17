@@ -1,4 +1,6 @@
 import time
+import os
+import csv
 from flcore.clients.clientprox import clientProx
 from flcore.servers.serverbase import Server
 from threading import Thread
@@ -19,6 +21,29 @@ class FedProx(Server):
         # self.load_model()
         self.Budget = []
 
+    def _log_server_metrics_csv(self, round_num, test_acc, train_loss, avg_mu):
+        """
+        Log server-level metrics to CSV for baseline FedProx:
+        round, test_acc, train_loss, mu (fixed), time_cost
+        """
+        outdir = getattr(self.args, "results_save_path", "./results")
+        os.makedirs(outdir, exist_ok=True)
+        path = os.path.join(outdir, "fedprox_server_metrics.csv")
+        write_header = not os.path.exists(path)
+        
+        row = {
+            "round": int(round_num),
+            "test_acc": float(test_acc) if test_acc is not None else 0.0,
+            "train_loss": float(train_loss) if train_loss is not None else 0.0,
+            "mu": float(avg_mu) if avg_mu is not None else 0.0,
+            "time_cost": float(self.Budget[-1]) if self.Budget else 0.0,
+        }
+        
+        with open(path, "a", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=list(row.keys()))
+            if write_header:
+                w.writeheader()
+            w.writerow(row)
 
     def train(self):
         for i in range(self.global_rounds+1):
@@ -30,6 +55,12 @@ class FedProx(Server):
                 print(f"\n-------------Round number: {i}-------------")
                 print("\nEvaluate global model")
                 self.evaluate()
+                
+                # Log server metrics to CSV
+                test_acc = self.rs_test_acc[-1] if self.rs_test_acc else None
+                train_loss = self.rs_train_loss[-1] if self.rs_train_loss else None
+                avg_mu = self.args.mu  # Fixed mu for FedProx
+                self._log_server_metrics_csv(i, test_acc, train_loss, avg_mu)
 
             for client in self.selected_clients:
                 client.train()

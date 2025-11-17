@@ -1,5 +1,7 @@
 import torch
 import math
+import os
+import csv
 from flcore.clients.clientditto import clientDitto
 
 
@@ -244,12 +246,9 @@ class ClientAdaProxDitto(clientDitto):
         round, client_id, Li, Lg, g_pos, mu
         Plus detailed step-by-step mu evolution columns
         """
-        import os
-        import csv
-        
         outdir = getattr(self.args, "results_save_path", "./results")
         os.makedirs(outdir, exist_ok=True)
-        path = os.path.join(outdir, "adaprox_minimal.csv")
+        path = os.path.join(outdir, "adaprox_ditto_minimal.csv")
         write_header = not os.path.exists(path)
         
         # Extract step-by-step evolution from adaptive_mu_info

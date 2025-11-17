@@ -1,4 +1,6 @@
 import time
+import os
+import csv
 from flcore.clients.clientadaprox import clientAdaProx
 from flcore.servers.serverbase import Server
 
@@ -24,6 +26,32 @@ class AdaProxFedProx(Server):
 
         # self.load_model()
         self.Budget = []
+
+    def _log_server_metrics_csv(self, round_num, median_loss, test_acc, train_loss, avg_mu):
+        """
+        Log server-level metrics to CSV:
+        round, median_client_loss, lg_ema, test_acc, train_loss, avg_mu, time_cost
+        """
+        outdir = getattr(self.args, "results_save_path", "./results")
+        os.makedirs(outdir, exist_ok=True)
+        path = os.path.join(outdir, "adaprox_server_metrics.csv")
+        write_header = not os.path.exists(path)
+        
+        row = {
+            "round": int(round_num),
+            "median_client_loss": float(median_loss) if median_loss is not None else 0.0,
+            "lg_ema": float(self.lg) if self.lg is not None else 0.0,
+            "test_acc": float(test_acc) if test_acc is not None else 0.0,
+            "train_loss": float(train_loss) if train_loss is not None else 0.0,
+            "avg_mu": float(avg_mu) if avg_mu is not None else 0.0,
+            "time_cost": float(self.Budget[-1]) if self.Budget else 0.0,
+        }
+        
+        with open(path, "a", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=list(row.keys()))
+            if write_header:
+                w.writeheader()
+            w.writerow(row)
 
     def send_models(self):
         """
@@ -66,6 +94,8 @@ class AdaProxFedProx(Server):
             self.receive_models()
             
             # === AdaProx: Update EMA of median global loss ===
+            med = None
+            avg_mu = None
             try:
                 import numpy as np
                 client_losses = [float(c.mean_loss_global) for c in self.selected_clients 
@@ -81,10 +111,24 @@ class AdaProxFedProx(Server):
                     
                     if i % self.eval_gap == 0:
                         print(f"[AdaProxFedProx] Median client loss: {med:.4f}, EMA (Lg): {self.lg:.4f}")
+                
+                # Compute average mu across clients
+                client_mus = [float(c.mu_current) for c in self.selected_clients 
+                             if hasattr(c, "mu_current")]
+                if len(client_mus) > 0:
+                    avg_mu = float(np.mean(client_mus))
+                    if i % self.eval_gap == 0:
+                        print(f"[AdaProxFedProx] Average mu: {avg_mu:.4f}")
             
             except Exception as e:
                 print(f"[AdaProxFedProx Warning] Error computing EMA: {e}")
             # === End AdaProx logic ===
+            
+            # Log server metrics to CSV
+            if i % self.eval_gap == 0:
+                test_acc = self.rs_test_acc[-1] if self.rs_test_acc else None
+                train_loss = self.rs_train_loss[-1] if self.rs_train_loss else None
+                self._log_server_metrics_csv(i, med, test_acc, train_loss, avg_mu)
 
             # DLG evaluation if needed
             if self.dlg_eval and i % self.dlg_gap == 0:
