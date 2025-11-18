@@ -1,0 +1,83 @@
+FedProx:
+Best accuracy.
+0.3259594882729211
+
+Average time cost per round.
+16.786041634082792
+File path: ../results/Cifar100_FedProx_test_0.h5
+
+Average time cost: 3374.86s.
+Length:  201
+std for best accuracy: 0.0
+mean for best accuracy: 0.3259594882729211
+All done!
+
+Storage on cuda:0
+-------------------------------------------------------------------------------
+Total Tensors: 75826056         Used Memory: 218.76M
+The allocated memory on cuda:0: 235.63M
+Memory differs due to the matrix alignment or invisible gradient buffer tensors
+-------------------------------------------------------------------------------
+
+AdaProx:
+Best accuracy.
+0.3265591684434968
+
+Average time cost per round.
+52.098442754745484
+File path: ../results/Cifar100_AdaProxFedProx_test_0.h5
+
+Average time cost: 10440.5s.
+Length:  201
+std for best accuracy: 0.0
+mean for best accuracy: 0.3265591684434968
+All done!
+
+Storage on cuda:0
+-------------------------------------------------------------------------------
+Total Tensors: 75826056         Used Memory: 218.76M
+The allocated memory on cuda:0: 235.76M
+Memory differs due to the matrix alignment or invisible gradient buffer tensors
+-------------------------------------------------------------------------------
+
+AdaDitto:
+Best accuracy.
+0.47981076759061836
+
+Average time cost per round.
+44.99004016637802
+File path: ../results/Cifar100_AdaProxDitto_test_0.h5
+
+Average time cost: 9034.75s.
+Length:  402
+std for best accuracy: 0.0
+mean for best accuracy: 0.47981076759061836
+All done!
+
+Storage on cuda:0
+-------------------------------------------------------------------------------
+Total Tensors: 112814376        Used Memory: 289.32M
+The allocated memory on cuda:0: 306.32M
+Memory differs due to the matrix alignment or invisible gradient buffer tensors
+-------------------------------------------------------------------------------
+
+Ditto:
+Best accuracy.
+0.4772121535181237
+
+Average time cost per round.
+33.58124060511589
+File path: ../results/Cifar100_Ditto_test_0.h5
+
+Average time cost: 6745.29s.
+Length:  402
+std for best accuracy: 0.0
+mean for best accuracy: 0.4772121535181237
+All done!
+
+Storage on cuda:0
+-------------------------------------------------------------------------------
+Total Tensors: 112814376        Used Memory: 289.32M
+The allocated memory on cuda:0: 306.20M
+Memory differs due to the matrix alignment or invisible gradient buffer tensors
+-------------------------------------------------------------------------------

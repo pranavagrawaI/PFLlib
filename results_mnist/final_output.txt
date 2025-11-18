@@ -1,0 +1,83 @@
+AdaProx:
+Best accuracy.
+0.978067169294037
+
+Average time cost per round.
+18.969807279109954
+File path: ../results/MNIST_AdaProxFedProx_test_0.h5
+
+Average time cost: 3804.18s.
+Length:  201
+std for best accuracy: 0.0
+mean for best accuracy: 0.978067169294037
+All done!
+
+Storage on cuda:0
+-------------------------------------------------------------------------------
+Total Tensors: 47726132         Used Memory: 137.74M
+The allocated memory on cuda:0: 153.99M
+Memory differs due to the matrix alignment or invisible gradient buffer tensors
+-------------------------------------------------------------------------------
+
+Ditto:
+Best accuracy.
+0.9921178889650446
+
+Average time cost per round.
+29.42569821238518
+File path: ../results/MNIST_Ditto_test_0.h5
+
+Average time cost: 5911.51s.
+Length:  402
+std for best accuracy: 0.0
+mean for best accuracy: 0.9921178889650446
+All done!
+
+Storage on cuda:0
+-------------------------------------------------------------------------------
+Total Tensors: 71007172         Used Memory: 182.18M
+The allocated memory on cuda:0: 198.43M
+Memory differs due to the matrix alignment or invisible gradient buffer tensors
+-------------------------------------------------------------------------------
+
+FedProx:
+Best accuracy.
+0.9774388850811058
+
+Average time cost per round.
+17.84232860684395
+File path: ../results/MNIST_FedProx_test_0.h5
+
+Average time cost: 3590.61s.
+Length:  201
+std for best accuracy: 0.0
+mean for best accuracy: 0.9774388850811058
+All done!
+
+Storage on cuda:0
+-------------------------------------------------------------------------------
+Total Tensors: 47726132         Used Memory: 137.74M
+The allocated memory on cuda:0: 153.99M
+Memory differs due to the matrix alignment or invisible gradient buffer tensors
+-------------------------------------------------------------------------------
+
+AdaDitto:
+Best accuracy.
+0.9922892392049348
+
+Average time cost per round.
+25.025638320446014
+File path: ../results/MNIST_AdaProxDitto_test_0.h5
+
+Average time cost: 5063.94s.
+Length:  402
+std for best accuracy: 0.0
+mean for best accuracy: 0.9922892392049348
+All done!
+
+Storage on cuda:0
+-------------------------------------------------------------------------------
+Total Tensors: 71007172         Used Memory: 182.18M
+The allocated memory on cuda:0: 198.43M
+Memory differs due to the matrix alignment or invisible gradient buffer tensors
+-------------------------------------------------------------------------------
