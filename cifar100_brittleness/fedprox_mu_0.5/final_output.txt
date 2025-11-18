@@ -1,0 +1,15 @@
+Best accuracy.
+0.3196295309168444
+
+Average time cost per round.
+20.421621133089065
+File path: ../results/Cifar100_FedProx_test_0.h5
+
+Average time cost: 4099.31s.
+Length:  201
+std for best accuracy: 0.0
+mean for best accuracy: 0.3196295309168444
+All done!
+
+Storage on cuda:0
+-------------------------------------------------------------------------------
