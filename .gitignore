@@ -1,3 +1,10 @@
 /results
 /system/models
 *__pycache__*
+
+results_cifar100/
+results_fmnist/
+results_mnist/
+comparison_results/
+cifar100_brittleness/
+tools/
