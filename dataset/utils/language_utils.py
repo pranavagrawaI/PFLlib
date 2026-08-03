@@ -3,8 +3,54 @@
 import re
 import numpy as np
 import json
-from torchtext.data.utils import get_tokenizer
-from torchtext.vocab import build_vocab_from_iterator
+from collections import Counter
+
+# ------------------------
+# torchtext-free tokenizer / vocab (torchtext is incompatible with torch 2.11).
+# basic_english_tokenizer reproduces torchtext's 'basic_english' normalization;
+# build_vocab is a deterministic frequency vocab with the same special tokens.
+
+_BASIC_PATTERNS = [r"\'", r"\"", r"\.", r"<br \/>", r",", r"\(", r"\)",
+                   r"\!", r"\?", r"\;", r"\:", r"\s+"]
+_BASIC_REPLACE = [" '  ", "", " . ", " ", " , ", " ( ", " ) ",
+                  " ! ", " ? ", " ", " ", " "]
+_BASIC_COMPILED = [(re.compile(p), r) for p, r in zip(_BASIC_PATTERNS, _BASIC_REPLACE)]
+
+SPECIALS = ["<pad>", "<cls>", "<unk>", "<eos>"]  # ids 0,1,2,3
+
+
+def basic_english_tokenizer(line):
+    """Lowercase, pad punctuation, split on whitespace (torchtext basic_english)."""
+    line = line.lower()
+    for pat, repl in _BASIC_COMPILED:
+        line = pat.sub(repl, line)
+    return line.split()
+
+
+def build_vocab(token_lists, max_tokens=32000, specials=SPECIALS):
+    """Deterministic vocab from token lists: specials first (ids 0..3), then most
+    frequent tokens (ties broken alphabetically) up to max_tokens. Returns
+    (itos, stoi)."""
+    counter = Counter()
+    for toks in token_lists:
+        counter.update(toks)
+    itos = list(specials)
+    ordered = sorted(counter.items(), key=lambda kv: (-kv[1], kv[0]))
+    for tok, _ in ordered:
+        if max_tokens and len(itos) >= max_tokens:
+            break
+        itos.append(tok)
+    stoi = {t: i for i, t in enumerate(itos)}
+    return itos, stoi
+
+
+def encode_tokens(tokens, stoi, max_len):
+    """[<cls>] + token ids (unknown -> <unk>), padded with <pad>(0)/truncated to
+    max_len. Returns (ids, true_length_capped_at_max_len)."""
+    ids = [stoi["<cls>"]] + [stoi.get(t, stoi["<unk>"]) for t in tokens]
+    true_len = min(len(ids), max_len)
+    ids = ids[:max_len] + [0] * max(0, max_len - len(ids))
+    return ids, true_len
 
 
 # ------------------------
@@ -39,7 +85,7 @@ def word_to_indices(word):
 
     Args:
         word: string
-    
+
     Return:
         indices: int list with length len(word)
     '''
@@ -59,7 +105,7 @@ def split_line(line):
 
     Args:
         line: string representing phrase to be split
-    
+
     Return:
         list of strings, with each string representing a word
     '''
@@ -83,11 +129,11 @@ def _word_to_index(word, indd):
 
 def line_to_indices(line, word2id, max_words=25):
     '''converts given phrase into list of word indices
-    
+
     if the phrase has more than max_words words, returns a list containing
     indices of the first max_words words
-    if the phrase has less than max_words words, repeatedly appends integer 
-    representing unknown index to returned list until the list's length is 
+    if the phrase has less than max_words words, repeatedly appends integer
+    representing unknown index to returned list until the list's length is
     max_words
 
     Args:
@@ -150,20 +196,10 @@ def val_to_vec(size, val):
     return vec
 
 def tokenizer(text, max_len, max_tokens=32000):
-    tokenizer = get_tokenizer('basic_english')
-    vocab = build_vocab_from_iterator(
-        map(tokenizer, iter(text)), 
-        specials = ['<pad>', 'cls', '<unk>', '<eos>'],
-        special_first = True, 
-        max_tokens = max_tokens 
-    )
-    vocab.set_default_index(vocab['<unk>'])
-    text_pipeline = lambda x: vocab(tokenizer(x))
-
-    text_list = []
-    for t in text:
-        tokens = [vocab['<cls>']] + text_pipeline(t)
-        padding = [0 for i in range(max_len - len(tokens))]
-        tokens.extend(padding)
-        text_list.append(tokens[:max_len])
-    return vocab, text_list
+    """Backward-compatible: build vocab from all `text` and encode. Prefer
+    basic_english_tokenizer + build_vocab + encode_tokens directly when a
+    train-only vocab is required."""
+    tokenized = [basic_english_tokenizer(t) for t in text]
+    itos, stoi = build_vocab(tokenized, max_tokens=max_tokens)
+    text_list = [encode_tokens(toks, stoi, max_len)[0] for toks in tokenized]
+    return stoi, text_list

@@ -1,4 +1,5 @@
 import copy
+import contextlib
 import torch
 import torch.nn as nn
 import numpy as np
@@ -15,7 +16,7 @@ class Client(object):
     """
 
     def __init__(self, args, id, train_samples, test_samples, **kwargs):
-        torch.manual_seed(0)
+        torch.manual_seed(int(getattr(args, "current_seed", getattr(args, "seed", 0))) + int(id))
         self.model = copy.deepcopy(args.model)
         self.algorithm = args.algorithm
         self.dataset = args.dataset
@@ -46,11 +47,24 @@ class Client(object):
         self.loss = nn.CrossEntropyLoss()
         self.optimizer = torch.optim.SGD(self.model.parameters(), lr=self.learning_rate)
         self.learning_rate_scheduler = torch.optim.lr_scheduler.ExponentialLR(
-            optimizer=self.optimizer, 
+            optimizer=self.optimizer,
             gamma=args.learning_rate_decay_gamma
         )
         self.learning_rate_decay = args.learning_rate_decay
 
+        # Optional mixed precision for the model forward/backward only (bf16 on
+        # Blackwell needs no GradScaler). Off by default so CIFAR/existing runs
+        # are bit-for-bit unchanged; AGNews enables it via PFLLIB_AMP=bf16 to
+        # recover ~2x on the expensive Transformer. Controller math is never
+        # wrapped — it reads loss scalars in fp32.
+        _amp = os.environ.get("PFLLIB_AMP", "").lower()
+        self._amp_dtype = (torch.bfloat16 if _amp == "bf16"
+                           else torch.float16 if _amp == "fp16" else None)
+
+    def amp_ctx(self):
+        if self._amp_dtype is not None and str(self.device).startswith("cuda"):
+            return torch.autocast(device_type="cuda", dtype=self._amp_dtype)
+        return contextlib.nullcontext()
 
     def load_train_data(self, batch_size=None):
         if batch_size == None:
@@ -63,7 +77,7 @@ class Client(object):
             batch_size = self.batch_size
         test_data = read_client_data(self.dataset, self.id, is_train=False, few_shot=self.few_shot)
         return DataLoader(test_data, batch_size, drop_last=False, shuffle=True)
-        
+
     def set_parameters(self, model):
         for new_param, old_param in zip(model.parameters(), self.model.parameters()):
             old_param.data = new_param.data.clone()
@@ -87,7 +101,7 @@ class Client(object):
         test_num = 0
         y_prob = []
         y_true = []
-        
+
         with torch.no_grad():
             for x, y in testloaderfull:
                 if type(x) == type([]):
@@ -112,12 +126,19 @@ class Client(object):
         # self.model.cpu()
         # self.save_model(self.model, 'model')
 
+        auc = self._safe_auc(y_true, y_prob)
+
+        return test_acc, test_num, auc
+
+    def _safe_auc(self, y_true, y_prob):
+        if not y_true or not y_prob:
+            return 0.0
         y_prob = np.concatenate(y_prob, axis=0)
         y_true = np.concatenate(y_true, axis=0)
-
-        auc = metrics.roc_auc_score(y_true, y_prob, average='micro')
-        
-        return test_acc, test_num, auc
+        try:
+            return metrics.roc_auc_score(y_true, y_prob, average='micro')
+        except ValueError:
+            return 0.0
 
     def train_metrics(self):
         trainloader = self.load_train_data()

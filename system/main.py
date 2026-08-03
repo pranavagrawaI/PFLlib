@@ -8,11 +8,26 @@ import warnings
 import numpy as np
 import torchvision
 import logging
+import random
+
+# WSL2 + Blackwell (sm_120) driver faults on the fused FlashAttention /
+# mem-efficient SDPA kernels under sustained Transformer training (silent GPU
+# hang / "device not ready"). Force scaled_dot_product_attention onto the
+# generic math backend (plain matmul+softmax) — the same op family the CNN runs
+# fine — sidestepping the faulting kernels. Negligible cost at our short seqs
+# (max_len=64). Toggle off with PFLLIB_FORCE_MATH_SDPA=0 on healthy GPUs.
+if os.environ.get("PFLLIB_FORCE_MATH_SDPA", "1") == "1":
+    if hasattr(torch.backends.cuda, "enable_flash_sdp"):
+        torch.backends.cuda.enable_flash_sdp(False)
+        torch.backends.cuda.enable_mem_efficient_sdp(False)
+        torch.backends.cuda.enable_math_sdp(True)
+        print("[main] SDPA forced to math backend (PFLLIB_FORCE_MATH_SDPA=1)")
 
 from flcore.servers.serveravg import FedAvg
 from flcore.servers.serverpFedMe import pFedMe
 from flcore.servers.serverperavg import PerAvg
 from flcore.servers.serverprox import FedProx
+from flcore.servers.serveradaprox import AdaProxFedProx
 from flcore.servers.serverfomo import FedFomo
 from flcore.servers.serveramp import FedAMP
 from flcore.servers.servermtl import FedMTL
@@ -20,6 +35,7 @@ from flcore.servers.serverlocal import Local
 from flcore.servers.serverper import FedPer
 from flcore.servers.serverapfl import APFL
 from flcore.servers.serverditto import Ditto
+from flcore.servers.server_adaprox_ditto import ServerAdaProxDitto
 from flcore.servers.serverrep import FedRep
 from flcore.servers.serverphp import FedPHP
 from flcore.servers.serverbn import FedBN
@@ -65,7 +81,36 @@ logger = logging.getLogger()
 logger.setLevel(logging.ERROR)
 
 warnings.simplefilter("ignore")
-torch.manual_seed(0)
+
+
+def str2bool(value):
+    if isinstance(value, bool):
+        return value
+    value = value.lower()
+    if value in ("yes", "true", "t", "1", "y"):
+        return True
+    if value in ("no", "false", "f", "0", "n"):
+        return False
+    raise argparse.ArgumentTypeError("Boolean value expected.")
+
+
+def set_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+
+def prepare_run(args, run_idx):
+    seed = args.seed + run_idx
+    set_seed(seed)
+    args.current_seed = seed
+    args.results_save_path = os.path.abspath(args.results_save_path)
+    args.model_save_path = os.path.abspath(args.model_save_path) if args.model_save_path else None
+    os.makedirs(args.results_save_path, exist_ok=True)
+    if args.model_save_path:
+        os.makedirs(args.model_save_path, exist_ok=True)
 
 
 def run(args):
@@ -75,6 +120,7 @@ def run(args):
     model_str = args.model
 
     for i in range(args.prev, args.times):
+        prepare_run(args, i)
         print(f"\n============= Running time: {i}th =============")
         print("Creating server and clients ...")
         start = time.time()
@@ -108,73 +154,73 @@ def run(args):
                 args.model = DNN(3*32*32, 100, num_classes=args.num_classes).to(args.device)
             else:
                 args.model = DNN(60, 20, num_classes=args.num_classes).to(args.device)
-        
+
         elif model_str == "ResNet18":
             args.model = torchvision.models.resnet18(pretrained=False, num_classes=args.num_classes).to(args.device)
-            
+
             # args.model = torchvision.models.resnet18(pretrained=True).to(args.device)
             # feature_dim = list(args.model.fc.parameters())[0].shape[1]
             # args.model.fc = nn.Linear(feature_dim, args.num_classes).to(args.device)
-            
+
             # args.model = resnet18(num_classes=args.num_classes, has_bn=True, bn_block_num=4).to(args.device)
-        
+
         elif model_str == "ResNet10":
             args.model = resnet10(num_classes=args.num_classes).to(args.device)
-        
+
         elif model_str == "ResNet34":
             args.model = torchvision.models.resnet34(pretrained=False, num_classes=args.num_classes).to(args.device)
 
         elif model_str == "AlexNet":
             args.model = alexnet(pretrained=False, num_classes=args.num_classes).to(args.device)
-            
+
             # args.model = alexnet(pretrained=True).to(args.device)
             # feature_dim = list(args.model.fc.parameters())[0].shape[1]
             # args.model.fc = nn.Linear(feature_dim, args.num_classes).to(args.device)
-            
+
         elif model_str == "GoogleNet":
-            args.model = torchvision.models.googlenet(pretrained=False, aux_logits=False, 
+            args.model = torchvision.models.googlenet(pretrained=False, aux_logits=False,
                                                       num_classes=args.num_classes).to(args.device)
-            
+
             # args.model = torchvision.models.googlenet(pretrained=True, aux_logits=False).to(args.device)
             # feature_dim = list(args.model.fc.parameters())[0].shape[1]
             # args.model.fc = nn.Linear(feature_dim, args.num_classes).to(args.device)
 
         elif model_str == "MobileNet":
             args.model = mobilenet_v2(pretrained=False, num_classes=args.num_classes).to(args.device)
-            
+
             # args.model = mobilenet_v2(pretrained=True).to(args.device)
             # feature_dim = list(args.model.fc.parameters())[0].shape[1]
             # args.model.fc = nn.Linear(feature_dim, args.num_classes).to(args.device)
-            
+
         elif model_str == "LSTM":
             args.model = LSTMNet(hidden_dim=args.feature_dim, vocab_size=args.vocab_size, num_classes=args.num_classes).to(args.device)
 
         elif model_str == "BiLSTM":
-            args.model = BiLSTM_TextClassification(input_size=args.vocab_size, hidden_size=args.feature_dim, 
-                                                   output_size=args.num_classes, num_layers=1, 
-                                                   embedding_dropout=0, lstm_dropout=0, attention_dropout=0, 
+            args.model = BiLSTM_TextClassification(input_size=args.vocab_size, hidden_size=args.feature_dim,
+                                                   output_size=args.num_classes, num_layers=1,
+                                                   embedding_dropout=0, lstm_dropout=0, attention_dropout=0,
                                                    embedding_length=args.feature_dim).to(args.device)
 
         elif model_str == "fastText":
             args.model = fastText(hidden_dim=args.feature_dim, vocab_size=args.vocab_size, num_classes=args.num_classes).to(args.device)
 
         elif model_str == "TextCNN":
-            args.model = TextCNN(hidden_dim=args.feature_dim, max_len=args.max_len, vocab_size=args.vocab_size, 
+            args.model = TextCNN(hidden_dim=args.feature_dim, max_len=args.max_len, vocab_size=args.vocab_size,
                                  num_classes=args.num_classes).to(args.device)
 
         elif model_str == "Transformer":
-            args.model = TransformerModel(ntoken=args.vocab_size, d_model=args.feature_dim, nhead=8, nlayers=2, 
+            args.model = TransformerModel(ntoken=args.vocab_size, d_model=args.feature_dim, nhead=8, nlayers=2,
                                           num_classes=args.num_classes, max_len=args.max_len).to(args.device)
-        
+
         elif model_str == "AmazonMLP":
             args.model = AmazonMLP().to(args.device)
 
         elif model_str == "HARCNN":
             if args.dataset == 'HAR':
-                args.model = HARCNN(9, dim_hidden=1664, num_classes=args.num_classes, conv_kernel_size=(1, 9), 
+                args.model = HARCNN(9, dim_hidden=1664, num_classes=args.num_classes, conv_kernel_size=(1, 9),
                                     pool_kernel_size=(1, 2)).to(args.device)
             elif args.dataset == 'PAMAP2':
-                args.model = HARCNN(9, dim_hidden=3712, num_classes=args.num_classes, conv_kernel_size=(1, 9), 
+                args.model = HARCNN(9, dim_hidden=3712, num_classes=args.num_classes, conv_kernel_size=(1, 9),
                                     pool_kernel_size=(1, 2)).to(args.device)
 
         else:
@@ -204,6 +250,9 @@ def run(args):
         elif args.algorithm == "FedProx":
             server = FedProx(args, i)
 
+        elif args.algorithm == "AdaProxFedProx":
+            server = AdaProxFedProx(args, i)
+
         elif args.algorithm == "FedFomo":
             server = FedFomo(args, i)
 
@@ -221,6 +270,9 @@ def run(args):
 
         elif args.algorithm == "Ditto":
             server = Ditto(args, i)
+
+        elif args.algorithm == "AdaProxDitto":
+            server = ServerAdaProxDitto(args, i)
 
         elif args.algorithm == "FedRep":
             args.head = copy.deepcopy(args.model.fc)
@@ -356,12 +408,11 @@ def run(args):
             server = FedLC(args, i)
 
         elif args.algorithm == 'FedAS':
-
             args.head = copy.deepcopy(args.model.fc)
             args.model.fc = nn.Identity()
             args.model = BaseHeadSplit(args.model, args.head)
             server = FedAS(args, i)
-            
+
         elif args.algorithm == "FedCross":
             server = FedCross(args, i)
 
@@ -373,10 +424,11 @@ def run(args):
         time_list.append(time.time()-start)
 
     print(f"\nAverage time cost: {round(np.average(time_list), 2)}s.")
-    
+
 
     # Global average
-    average_data(dataset=args.dataset, algorithm=args.algorithm, goal=args.goal, times=args.times)
+    average_data(dataset=args.dataset, algorithm=args.algorithm, goal=args.goal,
+                 times=args.times, result_path=args.results_save_path)
 
     print("All done!")
 
@@ -388,7 +440,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     # general
-    parser.add_argument('-go', "--goal", type=str, default="test", 
+    parser.add_argument('-go', "--goal", type=str, default="test",
                         help="The goal for this experiment")
     parser.add_argument('-dev', "--device", type=str, default="cuda",
                         choices=["cpu", "cuda"])
@@ -399,17 +451,17 @@ if __name__ == "__main__":
     parser.add_argument('-lbs', "--batch_size", type=int, default=10)
     parser.add_argument('-lr', "--local_learning_rate", type=float, default=0.005,
                         help="Local learning rate")
-    parser.add_argument('-ld', "--learning_rate_decay", type=bool, default=False)
+    parser.add_argument('-ld', "--learning_rate_decay", type=str2bool, default=False)
     parser.add_argument('-ldg', "--learning_rate_decay_gamma", type=float, default=0.99)
     parser.add_argument('-gr', "--global_rounds", type=int, default=2000)
-    parser.add_argument('-tc', "--top_cnt", type=int, default=100, 
+    parser.add_argument('-tc', "--top_cnt", type=int, default=100,
                         help="For auto_break")
-    parser.add_argument('-ls', "--local_epochs", type=int, default=1, 
+    parser.add_argument('-ls', "--local_epochs", type=int, default=1,
                         help="Multiple update steps in one local epoch.")
     parser.add_argument('-algo', "--algorithm", type=str, default="FedAvg")
     parser.add_argument('-jr', "--join_ratio", type=float, default=1.0,
                         help="Ratio of clients per round")
-    parser.add_argument('-rjr', "--random_join_ratio", type=bool, default=False,
+    parser.add_argument('-rjr', "--random_join_ratio", type=str2bool, default=False,
                         help="Random ratio of clients per round")
     parser.add_argument('-nc', "--num_clients", type=int, default=20,
                         help="Total number of clients")
@@ -420,14 +472,14 @@ if __name__ == "__main__":
     parser.add_argument('-eg', "--eval_gap", type=int, default=1,
                         help="Rounds gap for evaluation")
     parser.add_argument('-sfn', "--save_folder_name", type=str, default='items')
-    parser.add_argument('-ab', "--auto_break", type=bool, default=False)
-    parser.add_argument('-dlg', "--dlg_eval", type=bool, default=False)
+    parser.add_argument('-ab', "--auto_break", type=str2bool, default=False)
+    parser.add_argument('-dlg', "--dlg_eval", type=str2bool, default=False)
     parser.add_argument('-dlgg', "--dlg_gap", type=int, default=100)
     parser.add_argument('-bnpc', "--batch_num_per_client", type=int, default=2)
     parser.add_argument('-nnc', "--num_new_clients", type=int, default=0)
     parser.add_argument('-ften', "--fine_tuning_epoch_new", type=int, default=0)
     parser.add_argument('-fd', "--feature_dim", type=int, default=512)
-    parser.add_argument('-vs', "--vocab_size", type=int, default=80, 
+    parser.add_argument('-vs', "--vocab_size", type=int, default=80,
                         help="Set this for text tasks. 80 for Shakespeare. 32000 for AG_News and SogouNews.")
     parser.add_argument('-ml', "--max_len", type=int, default=200)
     parser.add_argument('-fs', "--few_shot", type=int, default=0)
@@ -438,7 +490,7 @@ if __name__ == "__main__":
                         help="The rate for slow clients when training locally")
     parser.add_argument('-ssr', "--send_slow_rate", type=float, default=0.0,
                         help="The rate for slow clients when sending global model")
-    parser.add_argument('-ts', "--time_select", type=bool, default=False,
+    parser.add_argument('-ts', "--time_select", type=str2bool, default=False,
                         help="Whether to group and select clients at each round according to time cost")
     parser.add_argument('-tth', "--time_threthold", type=float, default=10000,
                         help="The threthold for droping slow clients")
@@ -458,7 +510,7 @@ if __name__ == "__main__":
     parser.add_argument('-itk', "--itk", type=int, default=4000,
                         help="The iterations for solving quadratic subproblems")
     # FedAMP
-    parser.add_argument('-alk', "--alphaK", type=float, default=1.0, 
+    parser.add_argument('-alk', "--alphaK", type=float, default=1.0,
                         help="lambda/sqrt(GLOABL-ITRATION) according to the paper")
     parser.add_argument('-sg', "--sigma", type=float, default=1.0)
     # APFL / FedCross
@@ -477,7 +529,7 @@ if __name__ == "__main__":
     parser.add_argument('-glr', "--generator_learning_rate", type=float, default=0.005)
     parser.add_argument('-hd', "--hidden_dim", type=int, default=512)
     parser.add_argument('-se', "--server_epochs", type=int, default=1000)
-    parser.add_argument('-lf', "--localize_feature_extractor", type=bool, default=False)
+    parser.add_argument('-lf', "--localize_feature_extractor", type=str2bool, default=False)
     # SCAFFOLD / FedGH
     parser.add_argument('-slr', "--server_learning_rate", type=float, default=1.0)
     # FedALA
@@ -498,6 +550,50 @@ if __name__ == "__main__":
     parser.add_argument('-ca', "--fedcross_alpha", type=float, default=0.99)
     parser.add_argument('-cmss', "--collaberative_model_select_strategy", type=int, default=1)
 
+    # AdaProxFedProx & AdaProxDitto - Minimal Config Surface
+    parser.add_argument('-mubase', "--mu_base", type=float, default=0.08,
+                        help="Base mu value for AdaProx governor")
+    parser.add_argument('-mmin', "--mu_min", type=float, default=0.05,
+                        help="Minimum mu floor to prevent collapse")
+    parser.add_argument('-mmax', "--mu_max", type=float, default=3.0,
+                        help="Maximum mu cap")
+    parser.add_argument('-ag', "--alpha_gain", type=float, default=0.8,
+                        help="Adaptive mu gain (alpha) for gap amplification")
+    parser.add_argument('-gt', "--gap_tau", type=float, default=0.7,
+                        help="Gap clipping threshold (tau)")
+    parser.add_argument('-musmooth', "--mu_smooth_gamma", type=float, default=0.3,
+                        help="Smoothing factor for mu temporal stability")
+    parser.add_argument('-eb', "--ema_beta", type=float, default=0.9,
+                        help="EMA beta for server's global loss tracker")
+    parser.add_argument('-lsr', "--loss_eval_sample_ratio", type=float, default=0.1,
+                        help="Sample ratio for loss evaluation (cap 256)")
+    parser.add_argument('-wr', "--warmup_rounds", type=int, default=2,
+                        help="Warmup rounds before adaptive mu kicks in")
+    parser.add_argument('-vmu', "--verbose_mu", type=str2bool, default=False,
+                        help="Enable verbose console logging of mu evolution steps")
+    parser.add_argument("--seed", type=int, default=0,
+                        help="Base random seed. Run index is added for repeated runs.")
+    parser.add_argument("--results_save_path", type=str, default="./results",
+                        help="Directory for CSV, JSONL, and H5 experiment outputs.")
+    parser.add_argument("--model_save_path", type=str, default=None,
+                        help="Directory for model checkpoints. Defaults to models/<dataset> for backward compatibility.")
+    parser.add_argument("--controller_mode", type=str, default="full",
+                        choices=[
+                            "full",
+                            "fixed_base",
+                            "no_log_ratio",
+                            "no_clipping",
+                            "no_ema",
+                            "mean_global_loss",
+                            "global_shared",
+                            "random_adaptive",
+                        ],
+                        help="Adaptive-controller ablation mode for AdaProxFedProx/AdaProxDitto.")
+    parser.add_argument("--track_probe_accuracy", type=str2bool, default=False,
+                        help="Log sampled client probe accuracy for AdaProx/AdaDitto diagnostics.")
+    parser.add_argument("--track_overhead", type=str2bool, default=False,
+                        help="Log per-phase timing + GPU memory to overhead_trace.csv (AdaProx/AdaDitto).")
+
 
     args = parser.parse_args()
 
@@ -516,12 +612,12 @@ if __name__ == "__main__":
     #     activities=[
     #         torch.profiler.ProfilerActivity.CPU,
     #         torch.profiler.ProfilerActivity.CUDA],
-    #     profile_memory=True, 
+    #     profile_memory=True,
     #     on_trace_ready=torch.profiler.tensorboard_trace_handler('./log')
     #     ) as prof:
     # with torch.autograd.profiler.profile(profile_memory=True) as prof:
     run(args)
 
-    
+
     # print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=20))
     # print(f"\nTotal time cost: {round(time.time()-total_start, 2)}s.")

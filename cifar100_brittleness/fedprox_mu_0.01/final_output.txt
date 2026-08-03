@@ -1,0 +1,19 @@
+Best accuracy.
+0.326226012793177
+
+Average time cost per round.
+12.792124617099763
+File path: ../results/Cifar100_FedProx_test_0.h5
+
+Average time cost: 2573.84s.
+Length:  201
+std for best accuracy: 0.0
+mean for best accuracy: 0.326226012793177
+All done!
+
+Storage on cuda:0
+-------------------------------------------------------------------------------
+Total Tensors: 75826056         Used Memory: 218.76M
+The allocated memory on cuda:0: 235.63M
+Memory differs due to the matrix alignment or invisible gradient buffer tensors
+-------------------------------------------------------------------------------

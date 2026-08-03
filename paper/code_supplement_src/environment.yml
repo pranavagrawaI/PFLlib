@@ -1,0 +1,22 @@
+name: adaditto
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pip
+  - pip:
+      - torch==2.8.0
+      - torchvision==0.23.0
+      - numpy==2.2.6
+      - pandas==2.3.3
+      - scipy==1.15.3
+      - h5py==3.16.0
+      - matplotlib==3.10.8
+      - scikit-learn
+      - seaborn
+      - ujson
+      - calmsize
+      - memory-profiler
+      - portalocker
+      - cvxpy
+      - higher

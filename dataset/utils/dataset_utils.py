@@ -1,5 +1,8 @@
 import os
-import ujson
+try:
+    import ujson as json_lib
+except ModuleNotFoundError:
+    import json as json_lib
 import numpy as np
 import gc
 from sklearn.model_selection import train_test_split
@@ -8,19 +11,20 @@ from PIL import Image
 
 
 batch_size = 10
-train_ratio = 0.75 # merge original training set and test set, then split it manually. 
+train_ratio = 0.75 # merge original training set and test set, then split it manually.
 alpha = 0.1 # for Dirichlet distribution. 100 for exdir
 
-def check(config_path, train_path, test_path, num_clients, niid=False, 
-        balance=True, partition=None):
+def check(config_path, train_path, test_path, num_clients, niid=False,
+        balance=True, partition=None, class_per_client=None):
     # check existing dataset
     if os.path.exists(config_path):
         with open(config_path, 'r') as f:
-            config = ujson.load(f)
+            config = json_lib.load(f)
         if config['num_clients'] == num_clients and \
             config['non_iid'] == niid and \
             config['balance'] == balance and \
             config['partition'] == partition and \
+            config.get('class_per_client') == class_per_client and \
             config['alpha'] == alpha and \
             config['batch_size'] == batch_size:
             print("\nDataset already generated.\n")
@@ -41,7 +45,7 @@ def separate_data(data, num_clients, num_classes, niid=False, balance=False, par
     statistic = [[] for _ in range(num_clients)]
 
     dataset_content, dataset_label = data
-    # guarantee that each client must have at least one batch of data for testing. 
+    # guarantee that each client must have at least one batch of data for testing.
     least_samples = int(min(batch_size / (1-train_ratio), len(dataset_label) / num_clients / 2))
 
     dataidx_map = {}
@@ -109,17 +113,17 @@ def separate_data(data, num_clients, num_classes, niid=False, balance=False, par
 
         for j in range(num_clients):
             dataidx_map[j] = idx_batch[j]
-    
+
     elif partition == 'exdir':
         r'''This strategy comes from https://arxiv.org/abs/2311.03154
         See details in https://github.com/TsingZ0/PFLlib/issues/139
 
-        This version in PFLlib is slightly different from the original version 
+        This version in PFLlib is slightly different from the original version
         Some changes are as follows:
         n_nets -> num_clients, n_class -> num_classes
         '''
         C = class_per_client
-        
+
         '''The first level: allocate labels to clients
         clientidx_map (dict, {label: clientidx}), e.g., C=2, num_clients=5, num_classes=10
             {0: [0, 1], 1: [1, 2], 2: [2, 3], 3: [3, 4], 4: [4, 5], 5: [5, 6], 6: [6, 7], 7: [7, 8], 8: [8, 9], 9: [9, 0]}
@@ -140,7 +144,7 @@ def separate_data(data, num_clients, num_classes, niid=False, balance=False, par
                 for k in labelidx:
                     clientidx_map[k].append(i)
             min_size_per_label = min([len(clientidx_map[k]) for k in range(num_classes)])
-        
+
         '''The second level: allocate data idx'''
         dataidx_map = {}
         y_train = dataset_label
@@ -176,13 +180,13 @@ def separate_data(data, num_clients, num_classes, niid=False, balance=False, par
                 if proportions[-1] != len(idx_k):
                     for w in range(clientidx_map[k][-1], num_clients-1):
                         proportions[w] = len(idx_k)
-                idx_batch = [idx_j + idx.tolist() for idx_j, idx in zip(idx_batch, np.split(idx_k, proportions))] 
+                idx_batch = [idx_j + idx.tolist() for idx_j, idx in zip(idx_batch, np.split(idx_k, proportions))]
                 min_size = min([len(idx_j) for idx_j in idx_batch])
 
         for j in range(num_clients):
             np.random.shuffle(idx_batch[j])
             dataidx_map[j] = idx_batch[j]
-    
+
     else:
         raise NotImplementedError
 
@@ -194,7 +198,7 @@ def separate_data(data, num_clients, num_classes, niid=False, balance=False, par
 
         for i in np.unique(y[client]):
             statistic[client].append((int(i), int(sum(y[client]==i))))
-            
+
 
     del data
     # gc.collect()
@@ -230,17 +234,18 @@ def split_data(X, y):
 
     return train_data, test_data
 
-def save_file(config_path, train_path, test_path, train_data, test_data, num_clients, 
-                num_classes, statistic, niid=False, balance=True, partition=None):
+def save_file(config_path, train_path, test_path, train_data, test_data, num_clients,
+                num_classes, statistic, niid=False, balance=True, partition=None, class_per_client=None):
     config = {
-        'num_clients': num_clients, 
-        'num_classes': num_classes, 
-        'non_iid': niid, 
-        'balance': balance, 
-        'partition': partition, 
-        'Size of samples for labels in clients': statistic, 
-        'alpha': alpha, 
-        'batch_size': batch_size, 
+        'num_clients': num_clients,
+        'num_classes': num_classes,
+        'non_iid': niid,
+        'balance': balance,
+        'partition': partition,
+        'class_per_client': class_per_client,
+        'Size of samples for labels in clients': statistic,
+        'alpha': alpha,
+        'batch_size': batch_size,
     }
 
     # gc.collect()
@@ -253,7 +258,7 @@ def save_file(config_path, train_path, test_path, train_data, test_data, num_cli
         with open(test_path + str(idx) + '.npz', 'wb') as f:
             np.savez_compressed(f, data=test_dict)
     with open(config_path, 'w') as f:
-        ujson.dump(config, f)
+        json_lib.dump(config, f)
 
     print("Finish generating dataset.\n")
 
@@ -278,11 +283,11 @@ class ImageDataset(Dataset):
         img_name = self.dataframe.iloc[idx]['file_name']
         img_label = self.dataframe.iloc[idx]['class']
         img_path = os.path.join(self.image_folder, img_name)
-        
+
         # Load the image using PIL
         image = Image.open(img_path).convert('RGB')  # Ensure RGB if not grayscale
-        
+
         if self.transform:
             image = self.transform(image)
-        
+
         return image, img_label

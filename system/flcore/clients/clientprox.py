@@ -19,7 +19,7 @@ class clientProx(Client):
         self.optimizer = PerturbedGradientDescent(
             self.model.parameters(), lr=self.learning_rate, mu=self.mu)
         self.learning_rate_scheduler = torch.optim.lr_scheduler.ExponentialLR(
-            optimizer=self.optimizer, 
+            optimizer=self.optimizer,
             gamma=args.learning_rate_decay_gamma
         )
 
@@ -32,7 +32,7 @@ class clientProx(Client):
 
         max_local_epochs = self.local_epochs
         if self.train_slow:
-            max_local_epochs = np.random.randint(1, max_local_epochs // 2)
+            max_local_epochs = np.random.randint(1, max(2, max_local_epochs // 2 + 1))
 
         for epoch in range(max_local_epochs):
             for x, y in trainloader:
@@ -43,8 +43,9 @@ class clientProx(Client):
                 y = y.to(self.device)
                 if self.train_slow:
                     time.sleep(0.1 * np.abs(np.random.rand()))
-                output = self.model(x)
-                loss = self.loss(output, y)
+                with self.amp_ctx():
+                    output = self.model(x)
+                    loss = self.loss(output, y)
                 self.optimizer.zero_grad()
                 loss.backward()
                 self.optimizer.step(self.global_params, self.device)
@@ -83,7 +84,7 @@ class clientProx(Client):
 
                 gm = torch.cat([p.data.view(-1) for p in self.global_params], dim=0)
                 pm = torch.cat([p.data.view(-1) for p in self.model.parameters()], dim=0)
-                loss += 0.5 * self.mu * torch.norm(gm-pm, p=2)
+                loss += 0.5 * self.mu * torch.norm(gm-pm, p=2).pow(2)
 
                 train_num += y.shape[0]
                 losses += loss.item() * y.shape[0]

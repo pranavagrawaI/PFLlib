@@ -1,6 +1,7 @@
 import numpy as np
 import os
 import sys
+import argparse
 import random
 import torch
 import torchvision
@@ -15,18 +16,18 @@ dir_path = "Cifar100/"
 
 
 # Allocate data to users
-def generate_dataset(dir_path, num_clients, niid, balance, partition):
+def generate_dataset(dir_path, num_clients, niid, balance, partition, class_per_client=10):
     if not os.path.exists(dir_path):
         os.makedirs(dir_path)
-        
+
     # Setup directory for train/test data
     config_path = dir_path + "config.json"
     train_path = dir_path + "train/"
     test_path = dir_path + "test/"
 
-    if check(config_path, train_path, test_path, num_clients, niid, balance, partition):
+    if check(config_path, train_path, test_path, num_clients, niid, balance, partition, class_per_client):
         return
-        
+
     # Get Cifar100 data
     transform = transforms.Compose(
         [transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
@@ -63,16 +64,27 @@ def generate_dataset(dir_path, num_clients, niid, balance, partition):
     #     idx = dataset_label == i
     #     dataset.append(dataset_image[idx])
 
-    X, y, statistic = separate_data((dataset_image, dataset_label), num_clients, num_classes, 
-                                    niid, balance, partition, class_per_client=10)
+    X, y, statistic = separate_data((dataset_image, dataset_label), num_clients, num_classes,
+                                    niid, balance, partition, class_per_client=class_per_client)
     train_data, test_data = split_data(X, y)
-    save_file(config_path, train_path, test_path, train_data, test_data, num_clients, num_classes, 
-        statistic, niid, balance, partition)
+    save_file(config_path, train_path, test_path, train_data, test_data, num_clients, num_classes,
+        statistic, niid, balance, partition, class_per_client)
 
 
 if __name__ == "__main__":
-    niid = True if sys.argv[1] == "noniid" else False
-    balance = True if sys.argv[2] == "balance" else False
-    partition = sys.argv[3] if sys.argv[3] != "-" else None
-
-    generate_dataset(dir_path, num_clients, niid, balance, partition)
+    if len(sys.argv) > 1 and not sys.argv[1].startswith("-"):
+        niid = True if sys.argv[1] == "noniid" else False
+        balance = True if sys.argv[2] == "balance" else False
+        partition = sys.argv[3] if sys.argv[3] != "-" else None
+        generate_dataset(dir_path, num_clients, niid, balance, partition)
+    else:
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--out_dir", type=str, default=dir_path)
+        parser.add_argument("--num_clients", type=int, default=num_clients)
+        parser.add_argument("--niid", action="store_true", default=True)
+        parser.add_argument("--iid", dest="niid", action="store_false")
+        parser.add_argument("--balance", type=lambda v: str(v).lower() in ("1", "true", "yes", "y"), default=False)
+        parser.add_argument("--partition", type=str, default="dir", choices=["dir", "pat", "exdir"])
+        parser.add_argument("--class_per_client", type=int, default=10)
+        args = parser.parse_args()
+        generate_dataset(args.out_dir, args.num_clients, args.niid, args.balance, args.partition, args.class_per_client)

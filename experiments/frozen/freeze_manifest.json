@@ -1,0 +1,55 @@
+{
+  "adaptive_confirmation_csv": "/home/hipra/projects/PFLlib/experiments/phase2_confirm_selection.csv",
+  "adaptive_controller_args": [
+    "-ag",
+    "0.8",
+    "-musmooth",
+    "0.3",
+    "-eb",
+    "0.9",
+    "-gt",
+    "0.7",
+    "-mmax",
+    "3.0"
+  ],
+  "adaptive_selection_csv": "/home/hipra/projects/PFLlib/experiments/phase2_selection.csv",
+  "ag_news": {
+    "max_len": 200,
+    "vocab_size": 32000
+  },
+  "created_at_unix": 1782676178.4888463,
+  "learning_rate": 0.01,
+  "local_epochs": 1,
+  "locked": true,
+  "metrics": [
+    "server_metrics.csv",
+    "client_controller.csv",
+    "client_eval.csv",
+    "events.jsonl",
+    "h5 arrays"
+  ],
+  "model_architectures": {
+    "AGNews": "Transformer",
+    "Cifar100": "CNN"
+  },
+  "note": "Do not change settings after this file is finalized except for implementation bugs.",
+  "num_clients": 20,
+  "participation_rate": 1.0,
+  "rounds": 200,
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "static_ditto_lambda": {
+    "Cifar100_pathological": 0.0,
+    "Cifar100_practical": 0.5
+  },
+  "static_fedprox_mu": {
+    "Cifar100_pathological": 0.001,
+    "Cifar100_practical": 0.005
+  },
+  "static_selection_csv": "/home/hipra/projects/PFLlib/experiments/phase1_selection.csv"
+}

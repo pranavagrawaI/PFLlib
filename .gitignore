@@ -1,3 +1,9 @@
 /results
 /system/models
 *__pycache__*
+
+# Experiment runs: keep reporting artifacts (csv/json/traces/manifests) under
+# version control, but never the heavy regenerable model weights / raw HDF5.
+experiments/runs/**/models/
+experiments/runs/**/*.h5
+dataset/Shakespeare/

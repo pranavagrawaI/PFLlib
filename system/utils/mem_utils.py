@@ -4,7 +4,7 @@ from collections import defaultdict
 from typing import Optional, Tuple, List
 
 import torch
-  
+
 from math import isnan
 from calmsize import size as calmsize
 

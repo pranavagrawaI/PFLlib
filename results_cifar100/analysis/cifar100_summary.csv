@@ -1,0 +1,5 @@
+Method,Peak Global Acc,Final Global Acc,Final Loss,Mu (avg±std),Total Time (s),Peak Pers. Acc,Final Pers. Acc,Mu
+adaprox,0.3266,0.3252,1.7282,0.0896±0.0095,10420.17,,,
+adaprox_ditto,0.4798,0.4741,0.8344,0.0892±0.0091,8998.98,0.4798,0.4741,
+fedprox,0.3260,0.3240,1.7333,,3356.68,,,0.0000
+ditto,0.4772,0.4721,0.0007,,6709.18,0.4772,0.4721,0.0000
